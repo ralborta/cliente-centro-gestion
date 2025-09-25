@@ -1,5 +1,5 @@
 export async function postReconcile(
-  apiUrl: string | null,
+  _apiUrl: string | null,
   files: { extracto: File; ventas: File; compras: File }
 ) {
   const fd = new FormData();
@@ -7,8 +7,8 @@ export async function postReconcile(
   fd.append("ventas", files.ventas);
   fd.append("compras", files.compras);
 
-  // Si hay API_URL usaremos backend directo; si no, usamos el proxy local
-  const target = apiUrl ? `${apiUrl}/reconcile` : "/api/reconcile";
+  // Usamos siempre el proxy local para evitar CORS/405
+  const target = "/api/reconcile";
 
   const res = await fetch(target, {
     method: "POST",
