@@ -29,7 +29,7 @@ def _candidate_score(desc_a: str, desc_b: str, date_diff_days: float) -> float:
     return sim * (1.0 - 0.3 * penalty)
 
 
-def _find_matches_for_row(row: pd.Series, libros: pd.DataFrame, hints: ColumnHints, window_days: int = 5, tol: float = 0.01) -> List[Tuple[int, float]]:
+def _find_matches_for_row(row: pd.Series, libros: pd.DataFrame, hints: ColumnHints, window_days: int = 2, tol: float = 1.00) -> List[Tuple[int, float]]:
     date_col = hints.date_col
     amount_col = hints.amount_col
     desc_col = hints.desc_col
@@ -152,16 +152,9 @@ def build_output_sheet(original_extracto: pd.DataFrame, prepared_extracto: pd.Da
             result.at[i, "Conciliado"] = "Si"
             result.at[i, "Origen"] = source
             # Completar datos del libro
-            if source == "Ventas":
-                idx = int(m.get("match_index"))
-                ref = prepared_extracto
-            idx_v = int(m.get("match_index")) if source == "Ventas" else None
-            idx_c = int(m.get("match_index")) if source == "Compras" else None
-            # Buscar en la tabla real
-            if source == "Ventas":
-                result.at[i, "NroComprobante"] = ""  # podría completarse si tuviéramos esa columna estandarizada
-            elif source == "Compras":
-                result.at[i, "NroComprobante"] = ""
+            # Nota: en esta versión base no preservamos el dataset de ventas/compras aquí
+            # para completar comprobante/fecha/importe; esa mejora se puede añadir guardando
+            # referencias en matches. Dejamos placeholders.
             result.at[i, "ReglaAplicada"] = "multipass"
         else:
             result.at[i, "Conciliado"] = "No"

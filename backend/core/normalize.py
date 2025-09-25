@@ -119,15 +119,17 @@ def parse_amount(value) -> Optional[float]:
     s = str(value).strip()
     if s == "":
         return None
-    # Eliminar separadores de miles comunes
+    # Detectar signo con paréntesis o guion
+    sign = -1.0 if (s.startswith("(") and s.endswith(")")) or s.startswith("-") else 1.0
+    s = s.replace("(", "").replace(")", "").lstrip("-")
+    # Eliminar separadores de miles comunes y normalizar decimal a punto
     s = s.replace("\u00A0", "").replace(" ", "").replace(".", "").replace(",", ".")
-    # Restaurar posible decimal si había coma
     # Intentar float
     try:
-        return float(s)
+        return sign * float(s)
     except Exception:
         try:
-            return float(re.sub(r"[^0-9\.-]", "", s))
+            return sign * float(re.sub(r"[^0-9\.-]", "", s))
         except Exception:
             return None
 
