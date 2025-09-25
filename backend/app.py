@@ -10,6 +10,7 @@ from core.matcher import (
     prep_libro,
     multipass_match,
     build_output_sheet,
+    ai_only_match,
 )
 
 app = FastAPI(title="Conciliador")
@@ -59,8 +60,14 @@ async def reconcile(
     E, _ = prep_extracto(ext_df)
     V, _ = prep_libro(ven_df, origen="Ventas")
     C, _ = prep_libro(com_df, origen="Compras")
-    best = multipass_match(E, V, C)
-    sheet = build_output_sheet(ext_df, E, best)
+    # Si hay OPENAI_API_KEY y se solicita IA, usar AI-only
+    import os
+    use_ai_only = bool(os.getenv("OPENAI_API_KEY"))
+    if use_ai_only:
+        best = ai_only_match(E, V, C)
+    else:
+        best = multipass_match(E, V, C)
+    sheet = build_output_sheet(ext_df, E, best, ventas=V, compras=C)
 
     out = io.BytesIO()
     with pd.ExcelWriter(out, engine="openpyxl") as writer:
