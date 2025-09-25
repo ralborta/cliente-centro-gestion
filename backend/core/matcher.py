@@ -29,7 +29,7 @@ def _candidate_score(desc_a: str, desc_b: str, date_diff_days: float) -> float:
     return sim * (1.0 - 0.3 * penalty)
 
 
-def _find_matches_for_row(row: pd.Series, libros: pd.DataFrame, hints: ColumnHints, window_days: int = 2, tol: float = 1.00) -> List[Tuple[int, float]]:
+def _find_matches_for_row(row: pd.Series, libros: pd.DataFrame, hints: ColumnHints, window_days: int = 2, tol: float = 50.00) -> List[Tuple[int, float]]:
     date_col = hints.date_col
     amount_col = hints.amount_col
     desc_col = hints.desc_col
@@ -153,7 +153,7 @@ def build_output_sheet(
         "Tipo",
         "NroComprobante",
         "Origen",
-        "Impuesto",
+        "IIMPUESTO",
         "FechaLibro",
         "ImporteLibro",
         "Diferencia",
@@ -171,7 +171,7 @@ def build_output_sheet(
         # Impuesto básico por texto
         texto = str(row.get("texto", "")).lower()
         impuesto_terms = ["iva", "iibb", "retencion", "percepcion", "afip", "arba", "impuesto", "comision", "sellos", "tasas"]
-        result.at[i, "Impuesto"] = "Si" if any(t in texto for t in impuesto_terms) else "No"
+        result.at[i, "IIMPUESTO"] = "IIMPUESTO" if any(t in texto for t in impuesto_terms) else ""
 
         m = matches.get(rid)
         if m:
