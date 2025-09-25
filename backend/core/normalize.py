@@ -69,6 +69,13 @@ ID_PATTERNS = [
     r"^ref(erencia)?$",
 ]
 
+# Campos específicos por tipo de fuente
+CREDITO_PATTERNS = [r"^credito$", r"^cr$", r"^deposit(o|os)$", r"^ingreso(s)?$"]
+DEBITO_PATTERNS = [r"^debito$", r"^db$", r"^egreso(s)?$", r"^debito_automatico$"]
+TOTAL_PATTERNS = [r"^total$", r"^importe_total$", r"^importe$", r"^monto$"]
+COMPROBANTE_PATTERNS = [r"^comprobante$", r"^nro(_|)comprobante$", r"^numero$", r"^nro$", r"^factura$"]
+TEXTO_PATTERNS = DESC_PATTERNS + [r"^texto$", r"^movimiento$", r"^concepto$", r"^detalle$"]
+
 
 def _first_match(columns: list[str], patterns: list[str]) -> Optional[str]:
     for pat in patterns:
@@ -86,6 +93,24 @@ def detect_columns(df: pd.DataFrame) -> ColumnHints:
     desc_col = _first_match(cols, DESC_PATTERNS)
     id_col = _first_match(cols, ID_PATTERNS)
     return ColumnHints(date_col=date_col, amount_col=amount_col, desc_col=desc_col, id_col=id_col)
+
+
+def detect_extracto_columns(df: pd.DataFrame) -> Dict[str, Optional[str]]:
+    cols = list(df.columns)
+    fecha = _first_match(cols, DATE_PATTERNS)
+    credito = _first_match(cols, CREDITO_PATTERNS)
+    debito = _first_match(cols, DEBITO_PATTERNS)
+    texto = _first_match(cols, TEXTO_PATTERNS) or _first_match(cols, DESC_PATTERNS)
+    return {"fecha": fecha, "credito": credito, "debito": debito, "texto": texto}
+
+
+def detect_libro_columns(df: pd.DataFrame) -> Dict[str, Optional[str]]:
+    cols = list(df.columns)
+    fecha = _first_match(cols, DATE_PATTERNS)
+    total = _first_match(cols, TOTAL_PATTERNS)
+    comp = _first_match(cols, COMPROBANTE_PATTERNS)
+    desc = _first_match(cols, TEXTO_PATTERNS) or _first_match(cols, DESC_PATTERNS)
+    return {"fecha": fecha, "total": total, "comprobante": comp, "desc": desc}
 
 
 def parse_amount(value) -> Optional[float]:
@@ -138,6 +163,65 @@ def coerce_dataframe(df: pd.DataFrame) -> Tuple[pd.DataFrame, ColumnHints]:
         df2.insert(0, "__id__", range(1, len(df2) + 1))
 
     return df2, hints
+
+
+def coerce_extracto(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, Optional[str]]]:
+    dfn = normalize_columns(df)
+    cols = detect_extracto_columns(dfn)
+    # Construir columnas estándar: fecha, texto, monto (con signo) y tipo
+    if cols["fecha"]:
+        dfn[cols["fecha"]] = dfn[cols["fecha"]].apply(parse_date)
+    texto_col = cols["texto"] or ""
+    if texto_col in dfn.columns:
+        dfn[texto_col] = dfn[texto_col].astype(str).fillna("").map(lambda s: unidecode(s).strip())
+    # monto y tipo
+    monto_series = pd.Series([None] * len(dfn), dtype="float64")
+    tipo_series = pd.Series([None] * len(dfn), dtype="object")
+    if cols["credito"] and cols["credito"] in dfn.columns:
+        cr = dfn[cols["credito"]].apply(parse_amount)
+        sel = cr.fillna(0) != 0
+        monto_series = monto_series.mask(sel, cr.abs())
+        tipo_series = tipo_series.mask(sel, "Credito")
+    if cols["debito"] and cols["debito"] in dfn.columns:
+        db = dfn[cols["debito"]].apply(parse_amount)
+        sel = db.fillna(0) != 0
+        # Débito lo representamos con monto positivo pero tipo indica dirección
+        monto_series = monto_series.mask(sel, db.abs())
+        tipo_series = tipo_series.mask(sel, "Debito")
+    dfn["monto"] = monto_series.fillna(0.0).astype(float)
+    dfn["tipo"] = tipo_series.fillna("")
+    if "__id__" not in dfn.columns:
+        dfn.insert(0, "__id__", range(1, len(dfn) + 1))
+    # Alias estándar
+    dfn.rename(columns={texto_col: "texto", cols.get("fecha", "fecha"): "fecha"}, inplace=True)
+    return dfn, cols
+
+
+def coerce_libro(df: pd.DataFrame, origen: str) -> Tuple[pd.DataFrame, Dict[str, Optional[str]]]:
+    dfn = normalize_columns(df)
+    cols = detect_libro_columns(dfn)
+    if cols["fecha"]:
+        dfn[cols["fecha"]] = dfn[cols["fecha"]].apply(parse_date)
+    if cols["total"] and cols["total"] in dfn.columns:
+        dfn["monto"] = dfn[cols["total"]].apply(parse_amount).astype(float)
+    else:
+        dfn["monto"] = 0.0
+    if cols["comprobante"] and cols["comprobante"] in dfn.columns:
+        dfn["comprobante"] = dfn[cols["comprobante"]].astype(str)
+    else:
+        dfn["comprobante"] = ""
+    desc_col = cols.get("desc") or ""
+    if desc_col in dfn.columns:
+        dfn["desc"] = dfn[desc_col].astype(str).fillna("").map(lambda s: unidecode(s).strip())
+    else:
+        dfn["desc"] = ""
+    if "__id__" not in dfn.columns:
+        dfn.insert(0, "__id__", range(1, len(dfn) + 1))
+    dfn["__origen__"] = origen
+    # Alias estándar fecha
+    if cols.get("fecha"):
+        dfn.rename(columns={cols["fecha"]: "fecha"}, inplace=True)
+    return dfn, cols
 
 
 

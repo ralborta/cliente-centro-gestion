@@ -4,19 +4,20 @@ from typing import Dict, Tuple, Any, List
 import pandas as pd
 from rapidfuzz import fuzz
 
-from .normalize import coerce_dataframe, ColumnHints
+from .normalize import coerce_dataframe, ColumnHints, coerce_extracto, coerce_libro
 from .ai_assist import rerank_candidates_with_ai
 
 
 def prep_extracto(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, Any]]:
-    prepared, hints = coerce_dataframe(df)
+    prepared, hints_map = coerce_extracto(df)
+    hints = ColumnHints(date_col="fecha", amount_col="monto", desc_col="texto", id_col="__id__")
     meta = {"source": "extracto", "rows": len(prepared), "hints": hints.__dict__}
     return prepared, meta
 
 
 def prep_libro(df: pd.DataFrame, origen: str) -> Tuple[pd.DataFrame, Dict[str, Any]]:
-    prepared, hints = coerce_dataframe(df)
-    prepared["__origen__"] = origen
+    prepared, hints_map = coerce_libro(df, origen)
+    hints = ColumnHints(date_col="fecha", amount_col="monto", desc_col="desc", id_col="__id__")
     meta = {"source": origen, "rows": len(prepared), "hints": hints.__dict__}
     return prepared, meta
 
@@ -73,16 +74,36 @@ def multipass_match(extracto: pd.DataFrame, ventas: pd.DataFrame, compras: pd.Da
 
     results: Dict[int, Dict[str, Any]] = {}
 
+    # Buckets por importe redondeado (sin centavos) para acelerar
+    def bucket(df: pd.DataFrame, amount_col: str) -> pd.Series:
+        return df[amount_col].fillna(0.0).round(0)
+
+    ventas_b = bucket(ventas, hints_v.amount_col)
+    compras_b = bucket(compras, hints_c.amount_col)
+
     # Intentar primero contra Ventas, luego Compras
     for _, row in extracto.iterrows():
         rid = int(row["__id__"])
-        matches_v = _find_matches_for_row(row, ventas, hints_v)
-        matches_c = _find_matches_for_row(row, compras, hints_c)
+        # Signo: credito -> Ventas, debito -> Compras
+        tipo = str(row.get("tipo", ""))
+        target_first = "Ventas" if tipo.lower().startswith("cred") else "Compras" if tipo.lower().startswith("deb") else None
+
+        def pick(df: pd.DataFrame, hints: ColumnHints, buck: pd.Series) -> List[Tuple[int, float]]:
+            # Preselección por bucket de monto
+            bval = round(float(row.get(hints_e.amount_col) or 0.0))
+            subset_idx = buck[buck == bval].index
+            if len(subset_idx) == 0:
+                return []
+            subset = df.loc[subset_idx]
+            return _find_matches_for_row(row, subset, hints)
+
+        matches_v = pick(ventas, hints_v, ventas_b)
+        matches_c = pick(compras, hints_c, compras_b)
 
         chosen = None
         chosen_src = None
 
-        if matches_v:
+        if (target_first == "Ventas" and matches_v) or (target_first is None and matches_v):
             # Top-N y reranking IA
             top_ids = [i for i, _ in matches_v[:5]]
             cands = [
@@ -96,7 +117,7 @@ def multipass_match(extracto: pd.DataFrame, ventas: pd.DataFrame, compras: pd.Da
             order = rerank_candidates_with_ai(str(row.get(hints_e.desc_col, "")), cands)
             chosen = top_ids[order[0]] if order else top_ids[0]
             chosen_src = "Ventas"
-        elif matches_c:
+        elif (target_first == "Compras" and matches_c) or (target_first is None and matches_c):
             top_ids = [i for i, _ in matches_c[:5]]
             cands = [
                 {
@@ -118,17 +139,32 @@ def multipass_match(extracto: pd.DataFrame, ventas: pd.DataFrame, compras: pd.Da
 
 def build_output_sheet(original_extracto: pd.DataFrame, prepared_extracto: pd.DataFrame, matches: Dict[int, Dict[str, Any]]) -> pd.DataFrame:
     result = prepared_extracto.copy()
-    if "__match__" not in result.columns:
-        result["__match__"] = ""
-    if "__detalle__" not in result.columns:
-        result["__detalle__"] = ""
+    # Columnas de salida solicitadas
+    for col in ["Conciliado", "Origen", "NroComprobante", "FechaLibro", "ImporteLibro", "Diferencia", "ReglaAplicada"]:
+        if col not in result.columns:
+            result[col] = ""
 
     for i, row in result.iterrows():
         rid = int(row["__id__"])
         m = matches.get(rid)
         if m:
-            result.at[i, "__match__"] = m.get("source", "")
-            result.at[i, "__detalle__"] = f"idx={m.get('match_index')}"
+            source = m.get("source", "")
+            result.at[i, "Conciliado"] = "Si"
+            result.at[i, "Origen"] = source
+            # Completar datos del libro
+            if source == "Ventas":
+                idx = int(m.get("match_index"))
+                ref = prepared_extracto
+            idx_v = int(m.get("match_index")) if source == "Ventas" else None
+            idx_c = int(m.get("match_index")) if source == "Compras" else None
+            # Buscar en la tabla real
+            if source == "Ventas":
+                result.at[i, "NroComprobante"] = ""  # podría completarse si tuviéramos esa columna estandarizada
+            elif source == "Compras":
+                result.at[i, "NroComprobante"] = ""
+            result.at[i, "ReglaAplicada"] = "multipass"
+        else:
+            result.at[i, "Conciliado"] = "No"
 
     return result
 
