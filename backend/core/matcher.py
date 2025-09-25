@@ -179,16 +179,16 @@ def build_output_sheet(
             result.at[i, "Origen"] = source
             if source == "Ventas" and ventas is not None:
                 idx = int(m.get("match_index"))
-                if 0 <= idx < len(ventas):
-                    result.at[i, "NroComprobante"] = str(ventas.iloc[idx].get("comprobante", ""))
-                    result.at[i, "FechaLibro"] = str(ventas.iloc[idx].get("fecha", ""))
-                    result.at[i, "ImporteLibro"] = ventas.iloc[idx].get("monto", "")
+                if idx in ventas.index:
+                    result.at[i, "NroComprobante"] = str(ventas.loc[idx].get("comprobante", ""))
+                    result.at[i, "FechaLibro"] = str(ventas.loc[idx].get("fecha", ""))
+                    result.at[i, "ImporteLibro"] = ventas.loc[idx].get("monto", "")
             elif source == "Compras" and compras is not None:
                 idx = int(m.get("match_index"))
-                if 0 <= idx < len(compras):
-                    result.at[i, "NroComprobante"] = str(compras.iloc[idx].get("comprobante", ""))
-                    result.at[i, "FechaLibro"] = str(compras.iloc[idx].get("fecha", ""))
-                    result.at[i, "ImporteLibro"] = compras.iloc[idx].get("monto", "")
+                if idx in compras.index:
+                    result.at[i, "NroComprobante"] = str(compras.loc[idx].get("comprobante", ""))
+                    result.at[i, "FechaLibro"] = str(compras.loc[idx].get("fecha", ""))
+                    result.at[i, "ImporteLibro"] = compras.loc[idx].get("monto", "")
             try:
                 result.at[i, "Diferencia"] = abs(float(result.at[i, "Importe banco"]) - float(result.at[i, "ImporteLibro"]))
             except Exception:
