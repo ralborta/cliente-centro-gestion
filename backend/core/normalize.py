@@ -176,6 +176,16 @@ def coerce_extracto(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, Optional[
     texto_col = cols["texto"] or ""
     if texto_col in dfn.columns:
         dfn[texto_col] = dfn[texto_col].astype(str).fillna("").map(lambda s: unidecode(s).strip())
+    else:
+        # Fallback: concatenar columnas de texto para tener un campo robusto para IA
+        text_cols = [c for c in dfn.columns if dfn[c].dtype == object and c not in (cols.get("credito"), cols.get("debito"))]
+        if text_cols:
+            dfn["texto"] = (
+                dfn[text_cols]
+                .astype(str)
+                .apply(lambda r: " | ".join(unidecode(v).strip() for v in r.values if v and v != "nan"), axis=1)
+            )
+            texto_col = "texto"
     # monto y tipo
     monto_series = pd.Series([None] * len(dfn), dtype="float64")
     tipo_series = pd.Series([None] * len(dfn), dtype="object")
@@ -216,7 +226,16 @@ def coerce_libro(df: pd.DataFrame, origen: str) -> Tuple[pd.DataFrame, Dict[str,
     if desc_col in dfn.columns:
         dfn["desc"] = dfn[desc_col].astype(str).fillna("").map(lambda s: unidecode(s).strip())
     else:
-        dfn["desc"] = ""
+        # Fallback: concatenar columnas de texto para IA
+        text_cols = [c for c in dfn.columns if dfn[c].dtype == object and c not in (cols.get("total"), cols.get("comprobante"))]
+        if text_cols:
+            dfn["desc"] = (
+                dfn[text_cols]
+                .astype(str)
+                .apply(lambda r: " | ".join(unidecode(v).strip() for v in r.values if v and v != "nan"), axis=1)
+            )
+        else:
+            dfn["desc"] = ""
     if "__id__" not in dfn.columns:
         dfn.insert(0, "__id__", range(1, len(dfn) + 1))
     dfn["__origen__"] = origen
