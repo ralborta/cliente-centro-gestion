@@ -7,11 +7,10 @@ export default function Home() {
   const [ventas, setVentas] = useState<File | null>(null);
   const [compras, setCompras] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL!;
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || null;
 
   const onRun = async () => {
     if (!extracto || !ventas || !compras) return alert("Subí los 3 archivos");
-    if (!apiUrl) return alert("Definí NEXT_PUBLIC_API_URL");
     setLoading(true);
     try {
       const blob = await postReconcile(apiUrl, { extracto, ventas, compras });
