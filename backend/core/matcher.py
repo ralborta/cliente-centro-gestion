@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Dict, Tuple, Any, List
 import pandas as pd
 from rapidfuzz import fuzz, process
+from unidecode import unidecode
+import re
 
 from .normalize import coerce_dataframe, ColumnHints, coerce_extracto, coerce_libro
 from .ai_assist import rerank_candidates_with_ai
@@ -61,6 +63,24 @@ def _find_matches_for_row(row: pd.Series, libros: pd.DataFrame, hints: ColumnHin
 
     scores.sort(key=lambda x: x[1], reverse=True)
     return scores
+
+
+# Detección robusta de impuestos/comisiones a partir del texto del extracto
+_IMP_WORDS = [
+    "iva", "i.v.a", "iibb", "ingresos brutos", "retencion", "retenciones",
+    "percepcion", "percepciones", "rg4815", "rg 4815", "sircreb", "sirtac",
+    "afip", "arba", "impuesto", "impuestos", "impuesto s/creditos y debitos",
+    "impuesto al cheque", "idcb", "debito credito", "comision", "comisiones",
+    "mantenimiento", "gasto", "gastos", "tasas", "tasa", "sellos", "sello",
+    "arancel", "interes", "intereses", "costo financiero", "servicio bancario",
+]
+
+
+def is_impuesto(texto: str) -> bool:
+    t = unidecode(str(texto or "")).lower()
+    # Normalizar separadores
+    t = re.sub(r"[^a-z0-9\s/]+", " ", t)
+    return any(word in t for word in _IMP_WORDS)
 
 
 def multipass_match(extracto: pd.DataFrame, ventas: pd.DataFrame, compras: pd.DataFrame) -> Dict[int, Dict[str, Any]]:
@@ -169,9 +189,8 @@ def build_output_sheet(
         result.at[i, "Importe banco"] = row.get("monto", "")
         result.at[i, "Tipo"] = row.get("tipo", "")
         # Impuesto básico por texto
-        texto = str(row.get("texto", "")).lower()
-        impuesto_terms = ["iva", "iibb", "retencion", "percepcion", "afip", "arba", "impuesto", "comision", "sellos", "tasas"]
-        result.at[i, "IIMPUESTO"] = "IIMPUESTO" if any(t in texto for t in impuesto_terms) else ""
+        texto = str(row.get("texto", ""))
+        result.at[i, "IIMPUESTO"] = "IIMPUESTO" if is_impuesto(texto) else ""
 
         m = matches.get(rid)
         if m:
