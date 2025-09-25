@@ -44,17 +44,35 @@ async def reconcile(
     ventas: UploadFile = File(...),
     compras: UploadFile = File(...),
 ):
-    async def read_any(f: UploadFile) -> pd.DataFrame:
+    async def read_any(f: UploadFile, kind: str) -> pd.DataFrame:
         content = await f.read()
         bio = io.BytesIO(content)
         name = (f.filename or "").lower()
         if name.endswith(".csv"):
             return pd.read_csv(bio, dtype=str)
-        return pd.read_excel(bio, dtype=str)
+        # Excel: intentar seleccionar hoja por nombre segun tipo
+        try:
+            xls = pd.ExcelFile(bio)
+            sheets = [s.lower() for s in xls.sheet_names]
+            preferred = []
+            if kind == "extracto":
+                preferred = ["movimientos", "extracto", "sheet1", "hoja1"]
+            elif kind == "ventas":
+                preferred = ["hoja1", "ventas", "sheet1"]
+            elif kind == "compras":
+                preferred = ["hoja1", "compras", "sheet1"]
+            pick = next((orig for s, orig in zip(sheets, xls.sheet_names) if s in preferred), None)
+            if pick is None:
+                pick = xls.sheet_names[0]
+            return pd.read_excel(xls, sheet_name=pick, dtype=str)
+        except Exception:
+            # fallback lectura directa
+            bio.seek(0)
+            return pd.read_excel(bio, dtype=str)
 
-    ext_df = await read_any(extracto)
-    ven_df = await read_any(ventas)
-    com_df = await read_any(compras)
+    ext_df = await read_any(extracto, "extracto")
+    ven_df = await read_any(ventas, "ventas")
+    com_df = await read_any(compras, "compras")
 
     # Minimal pipeline – core functions can be expanded later
     E, _ = prep_extracto(ext_df)
