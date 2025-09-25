@@ -17,7 +17,7 @@ app = FastAPI(title="Conciliador")
 # Configure CORS for Vercel domain and local dev
 ALLOWED_ORIGINS = [
     "http://localhost:3000",
-    "https://tu-app.vercel.app",  # reemplazar por tu dominio Vercel real
+    "https://cliente-centro-gestion-myu99unkh-nivel-41.vercel.app",
 ]
 
 app.add_middleware(
