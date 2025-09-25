@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Dict, Tuple, Any, List
 import pandas as pd
-from rapidfuzz import fuzz
+from rapidfuzz import fuzz, process
 
 from .normalize import coerce_dataframe, ColumnHints, coerce_extracto, coerce_libro
 from .ai_assist import rerank_candidates_with_ai
@@ -137,27 +137,65 @@ def multipass_match(extracto: pd.DataFrame, ventas: pd.DataFrame, compras: pd.Da
     return results
 
 
-def build_output_sheet(original_extracto: pd.DataFrame, prepared_extracto: pd.DataFrame, matches: Dict[int, Dict[str, Any]]) -> pd.DataFrame:
+def build_output_sheet(
+    original_extracto: pd.DataFrame,
+    prepared_extracto: pd.DataFrame,
+    matches: Dict[int, Dict[str, Any]],
+    ventas: pd.DataFrame | None = None,
+    compras: pd.DataFrame | None = None,
+) -> pd.DataFrame:
     result = prepared_extracto.copy()
-    # Columnas de salida solicitadas
-    for col in ["Conciliado", "Origen", "NroComprobante", "FechaLibro", "ImporteLibro", "Diferencia", "ReglaAplicada"]:
+    # Columnas de salida completas
+    for col in [
+        "Fecha",
+        "Descripción",
+        "Importe banco",
+        "Tipo",
+        "NroComprobante",
+        "Origen",
+        "Impuesto",
+        "FechaLibro",
+        "ImporteLibro",
+        "Diferencia",
+        "ReglaAplicada",
+    ]:
         if col not in result.columns:
             result[col] = ""
 
     for i, row in result.iterrows():
         rid = int(row["__id__"])
+        result.at[i, "Fecha"] = str(row.get("fecha", ""))
+        result.at[i, "Descripción"] = str(row.get("texto", ""))
+        result.at[i, "Importe banco"] = row.get("monto", "")
+        result.at[i, "Tipo"] = row.get("tipo", "")
+        # Impuesto básico por texto
+        texto = str(row.get("texto", "")).lower()
+        impuesto_terms = ["iva", "iibb", "retencion", "percepcion", "afip", "arba", "impuesto", "comision", "sellos", "tasas"]
+        result.at[i, "Impuesto"] = "Si" if any(t in texto for t in impuesto_terms) else "No"
+
         m = matches.get(rid)
         if m:
             source = m.get("source", "")
-            result.at[i, "Conciliado"] = "Si"
             result.at[i, "Origen"] = source
-            # Completar datos del libro
-            # Nota: en esta versión base no preservamos el dataset de ventas/compras aquí
-            # para completar comprobante/fecha/importe; esa mejora se puede añadir guardando
-            # referencias en matches. Dejamos placeholders.
+            if source == "Ventas" and ventas is not None:
+                idx = int(m.get("match_index"))
+                if 0 <= idx < len(ventas):
+                    result.at[i, "NroComprobante"] = str(ventas.iloc[idx].get("comprobante", ""))
+                    result.at[i, "FechaLibro"] = str(ventas.iloc[idx].get("fecha", ""))
+                    result.at[i, "ImporteLibro"] = ventas.iloc[idx].get("monto", "")
+            elif source == "Compras" and compras is not None:
+                idx = int(m.get("match_index"))
+                if 0 <= idx < len(compras):
+                    result.at[i, "NroComprobante"] = str(compras.iloc[idx].get("comprobante", ""))
+                    result.at[i, "FechaLibro"] = str(compras.iloc[idx].get("fecha", ""))
+                    result.at[i, "ImporteLibro"] = compras.iloc[idx].get("monto", "")
+            try:
+                result.at[i, "Diferencia"] = abs(float(result.at[i, "Importe banco"]) - float(result.at[i, "ImporteLibro"]))
+            except Exception:
+                result.at[i, "Diferencia"] = ""
             result.at[i, "ReglaAplicada"] = "multipass"
         else:
-            result.at[i, "Conciliado"] = "No"
+            result.at[i, "Origen"] = ""
 
     return result
 
